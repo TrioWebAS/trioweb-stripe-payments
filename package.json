@@ -1,0 +1,40 @@
+{
+  "name": "@trioweb/stripe-payments",
+  "version": "0.0.1",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Provides a Stripe payment method for PWA-Studio.",
+  "keywords": [
+    "Stripe",
+    "Magento",
+    "PWA-studio",
+    "PWA",
+    "payment",
+    "method"
+  ],
+  "author": "Geir Kristian Thunem - TrioWeb AS - <geir@trioweb.no>",
+  "main": "./intercept.js",
+  "scripts": {
+    "clean": " "
+  },
+  "repository": "git@github.com:TrioWebAS/trioweb-stripe-payments.git",
+  "license": "(OSL-3.0 OR AFL-3.0)",
+  "peerDependencies": {
+    "@magento/peregrine": "~12.2.0",
+    "@magento/pwa-buildpack": "~11.1.0",
+    "@trioweb/venia-ui": "~9.2.0",
+    "react": "~17.0.1",
+    "react-intl": "~5.20.0",
+    "react-router-dom": "~5.2.0"
+  },
+  "pwa-studio": {
+    "targets": {
+      "intercept": "./intercept"
+    }
+  },
+  "dependencies": {
+    "@stripe/react-stripe-js": "~1.7.0",
+    "@stripe/stripe-js": "~1.24.0"
+  }
+}
