@@ -1,3 +1,7 @@
+# DISCLAIMER! This is a Work-in-progress. Still not working as intended!
+
+Play around at your own risk
+
 # trioweb-stripe-payments
 
 This package implements [stripe/react-stripe-js](https://github.com/stripe/react-stripe-js) elements as an extension.
