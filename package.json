@@ -14,7 +14,7 @@
     "method"
   ],
   "author": "Geir Kristian Thunem - TrioWeb AS - <geir@trioweb.no>",
-  "main": "./intercept.js",
+  "main": "index.js",
   "scripts": {
     "clean": " "
   },
@@ -30,7 +30,7 @@
   },
   "pwa-studio": {
     "targets": {
-      "intercept": "./intercept"
+      "intercept": "src/targets/intercept.js"
     }
   },
   "dependencies": {
