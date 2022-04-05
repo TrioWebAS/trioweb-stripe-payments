@@ -4,15 +4,6 @@ extend type StoreConfig {
     stripe_test_pk: String
 }
 
-extend type PaymentMethodInput {
-    stripe_payments: StripePaymentsInput
-}
-
 extend type Cart {
-    paymentIntent: String
-}
-
-input StripePaymentsInput {
-    cc_save: Boolean
-    cc_stripejs_token: String!
+    cc_stripejs_token: String
 }

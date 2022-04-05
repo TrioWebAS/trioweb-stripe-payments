@@ -9,6 +9,7 @@ import { useCartContext } from '@magento/peregrine/lib/context/cart';
 import BRAINTREE_OPERATIONS from '@magento/peregrine/lib/talons/CheckoutPage/PaymentInformation/creditCard.gql';
 import STRIPE_OPERATIONS from './stripe.gql';
 import { useGoogleReCaptcha } from '@magento/peregrine/lib/hooks/useGoogleReCaptcha';
+import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 const getRegion = region => {
     return region.region_id || region.label || region.code;
@@ -48,7 +49,7 @@ import { mapAddressData } from '@magento/peregrine/lib/talons/CheckoutPage/Payme
  *
  * @returns {
  *   errors: Map<String, Error>,
- *   shouldRequestPaymentIntent: Boolean,
+ *   shouldRequestPayment: Boolean,
  *   onPaymentError: Function,
  *   onPaymentSuccess: Function,
  *   onPaymentReady: Function,
@@ -93,7 +94,7 @@ export const useCreditCard = props => {
         getShippingAddressQuery,
         setBillingAddressMutation,
         setStripeCreditCardDetailsOnCartMutation,
-        getPaymentIntentQuery,
+        getPaymentMethodQuery,
         createPaymentIntentMutation
     } = operations;
 
@@ -106,15 +107,12 @@ export const useCreditCard = props => {
         formAction: 'stripe_payments'
     });
 
-    /**
-     * Definitions
-     */
+    const stripe = useStripe();
+    //const { retrievePaymentIntent, handleCardAction, handleCardPayment, createPaymentMethod } = stripe;
+    const elements = useElements();
 
     const [isDropinLoading, setDropinLoading] = useState(true);
-    const [
-        shouldRequestPaymentIntent,
-        setShouldRequestPaymentIntent
-    ] = useState(false);
+    const [shouldRequestPayment, setShouldRequestPayment] = useState(false);
     const [shouldTeardownDropin, setShouldTeardownDropin] = useState(false);
     /**
      * `stepNumber` depicts the state of the process flow in credit card
@@ -179,16 +177,6 @@ export const useCreditCard = props => {
             data: intentData
         }
     ] = useMutation(createPaymentIntentMutation);
-
-    useEffect(() => {
-        console.log('paymentIntent changed', intentData);
-    }, [intentData]);
-    // the create an exportable function to be invoked by the visual component onload
-    const onCreatePaymentIntent = useCallback(() => {
-        createPaymentIntent({
-            variables: { cartId }
-        });
-    }, [createPaymentIntent, cartId]);
 
     const shippingAddressCountry = shippingAddressData
         ? shippingAddressData.cart.shippingAddresses[0].country.code
@@ -305,7 +293,7 @@ export const useCreditCard = props => {
              * we only save the subset of details.
              */
             client.writeQuery({
-                query: getPaymentIntentQuery,
+                query: getPaymentMethodQuery,
                 data: {
                     cart: {
                         __typename: 'Cart',
@@ -315,7 +303,7 @@ export const useCreditCard = props => {
                 }
             });
         },
-        [cartId, client, getPaymentIntentQuery]
+        [cartId, client, getPaymentMethodQuery]
     );
 
     /**
@@ -345,14 +333,14 @@ export const useCreditCard = props => {
 
     /**
      * Function to be called by the stripe dropin when the
-     * paymentIntent generation is successful.
+     * paymentMethod generation is successful.
      */
     const onPaymentSuccess = useCallback(
         stripeToken => {
             console.log('onPaymentSucces runs', stripeToken);
             setPaymentDetailsInCache(stripeToken);
             /**
-             * Updating payment paymentIntent and selected payment method on cart.
+             * Updating selected payment method on cart.
              */
             updateCCDetailsOnCart(stripeToken);
             setStepNumber(3);
@@ -367,7 +355,7 @@ export const useCreditCard = props => {
     const onPaymentError = useCallback(
         error => {
             setStepNumber(0);
-            setShouldRequestPaymentIntent(false);
+            setShouldRequestPayment(false);
             resetShouldSubmit();
             if (onError) {
                 onError(error);
@@ -381,12 +369,24 @@ export const useCreditCard = props => {
      * credit card component has loaded successfully.
      */
     const onPaymentReady = useCallback(() => {
-        setDropinLoading(false);
-        setStepNumber(0);
-        if (onReady) {
-            onReady();
+        // fire the mutation to make payment intent on backend server
+        // useEffect listener below will update states when intent is received
+        createPaymentIntent({
+            variables: { cartId }
+        });
+    }, [createPaymentIntent, cartId]);
+
+    // update states when paymentIntent created
+    useEffect(() => {
+        if (intentData) {
+            console.log('paymentIntent changed', intentData);
+            setDropinLoading(false);
+            setStepNumber(0);
+            if (onReady) {
+                onReady();
+            }
         }
-    }, [onReady]);
+    }, [intentData, onReady]);
 
     /**
      * Function to be called by stripe dropin when the payment
@@ -441,7 +441,7 @@ export const useCreditCard = props => {
             }
             setStepNumber(0);
             resetShouldSubmit();
-            setShouldRequestPaymentIntent(false);
+            setShouldRequestPayment(false);
         }
     }, [
         shouldSubmit,
@@ -473,7 +473,7 @@ export const useCreditCard = props => {
                  * we can initiate the stripe paymentIntent request
                  */
                 setStepNumber(2);
-                setShouldRequestPaymentIntent(true);
+                setShouldRequestPayment(true);
             }
 
             if (
@@ -492,7 +492,7 @@ export const useCreditCard = props => {
             }
             setStepNumber(0);
             resetShouldSubmit();
-            setShouldRequestPaymentIntent(false);
+            setShouldRequestPayment(false);
         }
     }, [
         billingAddressMutationError,
@@ -502,13 +502,82 @@ export const useCreditCard = props => {
     ]);
 
     /**
+     * Step 2-3 transition
+     * shouldRequestPayment changed
+     * ...no need to pass this back and forth between the visual component
+     * - let's handle everything here and fire onPaymentSuccess afterwards
+     */
+    useEffect(() => {
+        if (shouldRequestPayment) {
+            console.log('should request paymentMethod');
+            /*
+            const CLIENT_SECRET =
+                intentData?.createPaymentIntent?.intent_client_secret;
+*/
+            if (!stripe || !elements || !billingAddressData) {
+                // Stripe.js has not yet loaded.
+                // Make sure to disable form submission until Stripe.js has loaded.
+                onPaymentError('Failed to request payment method from stripe');
+                return;
+            }
+
+            const {
+                firstname,
+                lastname,
+                email,
+                telephone,
+                street,
+                postcode,
+                city,
+                country_id
+            } = billingAddressData;
+
+            const createPaymentMethod = async () => {
+                const { paymentMethod } = await stripe.createPaymentMethod({
+                    type: 'card',
+                    card: elements.getElement(CardElement),
+                    billing_details: {
+                        name: firstname + ' ' + lastname,
+                        email: email,
+                        phone: telephone,
+                        address: {
+                            line1: street,
+                            postal_code: postcode,
+                            city: city,
+                            country: country_id
+                        }
+                    }
+                });
+
+                if (!paymentMethod?.id) {
+                    console.warn('Failed to create stripe payment method');
+                } else {
+                    onPaymentSuccess(paymentMethod.id);
+                    // TODO: figure out if the id is all we really need:
+                    // found some interesting references on token usage.
+                    // token: `${paymentMethod.id}:${paymentMethod.card.brand}:${paymentMethod.card.last4}`,
+                }
+            };
+            createPaymentMethod();
+        }
+    }, [
+        stripe,
+        elements,
+        shouldRequestPayment,
+        intentData,
+        billingAddressData,
+        onPaymentError,
+        onPaymentSuccess
+    ]);
+
+    /**
      * Step 3 effect
      *
      * Credit card save mutation has completed
      */
     useEffect(() => {
         /**
-         * Saved billing address, payment method and payment paymentIntent on cart.
+         * Saved billing address and payment method on cart.
          *
          * Time to call onSuccess.
          */
@@ -539,14 +608,14 @@ export const useCreditCard = props => {
             }
             setStepNumber(0);
             resetShouldSubmit();
-            setShouldRequestPaymentIntent(false);
+            setShouldRequestPayment(false);
             setShouldTeardownDropin(true);
         }
     }, [
         ccMutationCalled,
         ccMutationLoading,
         onSuccess,
-        setShouldRequestPaymentIntent,
+        setShouldRequestPayment,
         resetShouldSubmit,
         ccMutationError
     ]);
@@ -567,14 +636,12 @@ export const useCreditCard = props => {
         onPaymentReady,
         isBillingAddressSame,
         isLoading,
-        shouldRequestPaymentIntent,
+        shouldRequestPayment,
         stepNumber,
         initialValues,
         shippingAddressCountry,
         shouldTeardownDropin,
         resetShouldTeardownDropin,
-        recaptchaWidgetProps,
-        onCreatePaymentIntent,
-        stripeToken: intentData
+        recaptchaWidgetProps
     };
 };

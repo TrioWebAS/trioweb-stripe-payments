@@ -12,27 +12,8 @@ export const GET_STRIPE_CONFIG_DATA = gql`
     }
 `;
 
-export const SET_PAYMENT_METHOD_ON_CART = gql`
-    mutation setPaymentMethodOnCart($cartId: String!) {
-        setPaymentMethodOnCart(
-            input: {
-                cart_id: $cartId
-                payment_method: { code: "stripe_payments" }
-            }
-        ) {
-            cart {
-                id
-                selected_payment_method {
-                    code
-                    title
-                }
-            }
-        }
-    }
-`;
-
-export const GET_PAYMENT_INTENT = gql`
-    query getPaymentIntent($cartId: String!) {
+export const GET_PAYMENT_METHOD = gql`
+    query getPaymentMethod($cartId: String!) {
         cart(cart_id: $cartId) @client {
             id
             cc_stripejs_token
@@ -79,8 +60,7 @@ export const SET_CC_DETAILS_ON_CART = gql`
 
 export default {
     getStripeConfigQuery: GET_STRIPE_CONFIG_DATA,
-    //setPaymentMethodOnCartMutation: SET_PAYMENT_METHOD_ON_CART,
-    getPaymentIntentQuery: GET_PAYMENT_INTENT,
+    getPaymentMethodQuery: GET_PAYMENT_METHOD,
     setStripeCreditCardDetailsOnCartMutation: SET_CC_DETAILS_ON_CART,
     createPaymentIntentMutation: CREATE_PAYMENT_INTENT
 };

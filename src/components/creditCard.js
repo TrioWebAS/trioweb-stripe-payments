@@ -11,7 +11,6 @@ import Postcode from '@magento/venia-ui/lib/components/Postcode';
 import Checkbox from '@magento/venia-ui/lib/components/Checkbox';
 import Field from '@magento/venia-ui/lib/components/Field';
 import TextInput from '@magento/venia-ui/lib/components/TextInput';
-//import BrainTreeDropin from '@magento/venia-ui/lib/components/CheckoutPage/PaymentInformation/brainTreeDropIn';
 import StripeDropin from './stripeDropin.js';
 import LoadingIndicator from '@magento/venia-ui/lib/components/LoadingIndicator';
 import { useStyle } from '@magento/venia-ui/lib/classify';
@@ -66,7 +65,7 @@ const CreditCard = props => {
 
     const {
         errors,
-        shouldRequestPaymentIntent,
+        shouldRequestPayment,
         onPaymentError,
         onPaymentSuccess,
         onPaymentReady,
@@ -87,11 +86,9 @@ const CreditCard = props => {
         shippingAddressCountry,
         shouldTeardownDropin,
         resetShouldTeardownDropin,
-        recaptchaWidgetProps,
-        onCreatePaymentIntent,
-        stripeToken
+        recaptchaWidgetProps
     } = talonProps;
-    console.log('talonProps', talonProps);
+
     const creditCardComponentClassName = isLoading
         ? classes.credit_card_root_hidden
         : classes.credit_card_root;
@@ -169,11 +166,9 @@ const CreditCard = props => {
                         onError={onPaymentError}
                         onReady={onPaymentReady}
                         onSuccess={onPaymentSuccess}
-                        shouldRequestPaymentIntent={shouldRequestPaymentIntent}
+                        shouldRequestPayment={shouldRequestPayment}
                         shouldTeardownDropin={shouldTeardownDropin}
                         resetShouldTeardownDropin={resetShouldTeardownDropin}
-                        onCreatePaymentIntent={onCreatePaymentIntent}
-                        stripeToken={stripeToken}
                     />
                 </div>
                 <div
