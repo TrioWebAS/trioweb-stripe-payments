@@ -45,9 +45,9 @@ module.exports = targets => {
     });
     */
     const {
-        checkoutPagePaymentTypes
+        checkoutPagePaymentTypes,
         //editablePaymentTypes,
-        //summaryPagePaymentTypes
+        summaryPagePaymentTypes
     } = targets.of('@magento/venia-ui');
     checkoutPagePaymentTypes.tap(payments =>
         payments.add({
@@ -68,11 +68,11 @@ module.exports = targets => {
             importPath: '@trioweb/stripe-payments/src/components/edit.js'
         });
     });
+    */
     summaryPagePaymentTypes.tap(paymentSummaries =>
         paymentSummaries.add({
             paymentCode: 'stripe_payments',
             importPath: '@trioweb/stripe-payments/src/components/summary.js'
         })
     );
-    */
 };
