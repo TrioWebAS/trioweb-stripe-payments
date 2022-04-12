@@ -16,7 +16,7 @@ export const GET_PAYMENT_METHOD = gql`
     query getPaymentMethod($cartId: String!) {
         cart(cart_id: $cartId) @client {
             id
-            cc_stripejs_token
+            stripe_payment_method
         }
     }
 `;

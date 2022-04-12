@@ -5,5 +5,5 @@ extend type StoreConfig {
 }
 
 extend type Cart {
-    cc_stripejs_token: String
+    stripe_payment_method: String
 }

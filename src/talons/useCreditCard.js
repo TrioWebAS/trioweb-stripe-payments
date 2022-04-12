@@ -49,10 +49,6 @@ import { mapAddressData } from '@magento/peregrine/lib/talons/CheckoutPage/Payme
  *
  * @returns {
  *   errors: Map<String, Error>,
- *   shouldRequestPayment: Boolean,
- *   onPaymentError: Function,
- *   onPaymentSuccess: Function,
- *   onPaymentReady: Function,
  *   isBillingAddressSame: Boolean,
  *   isLoading: Boolean,
  *   stepNumber: Number,
@@ -70,7 +66,6 @@ import { mapAddressData } from '@magento/peregrine/lib/talons/CheckoutPage/Payme
  *   },
  *   shippingAddressCountry: String,
  *   shouldTeardownDropin: Boolean,
- *   resetShouldTeardownDropin: Function
  * }
  */
 export const useCreditCard = props => {
@@ -111,9 +106,10 @@ export const useCreditCard = props => {
     //const { retrievePaymentIntent, handleCardAction, handleCardPayment, createPaymentMethod } = stripe;
     const elements = useElements();
 
-    const [isDropinLoading, setDropinLoading] = useState(true);
+    const [isStripeJSLoading, setStripeJSLoading] = useState(true);
     const [shouldRequestPayment, setShouldRequestPayment] = useState(false);
     const [shouldTeardownDropin, setShouldTeardownDropin] = useState(false);
+
     /**
      * `stepNumber` depicts the state of the process flow in credit card
      * payment flow.
@@ -132,10 +128,13 @@ export const useCreditCard = props => {
     const [{ cartId }] = useCartContext();
 
     const isLoading =
-        isDropinLoading ||
+        isStripeJSLoading ||
         recaptchaLoading ||
         (stepNumber >= 1 && stepNumber <= 3);
 
+    /**
+     * GQL DATA QUERIES
+     */
     const { data: billingAddressData } = useQuery(getBillingAddressQuery, {
         skip: !cartId,
         variables: { cartId }
@@ -148,6 +147,32 @@ export const useCreditCard = props => {
         getIsBillingAddressSameQuery,
         { skip: !cartId, variables: { cartId } }
     );
+    const { data: stripePaymentMethodData } = useQuery(getPaymentMethodQuery, {
+        skip: !cartId,
+        variables: { cartId }
+    });
+
+    /**
+     * GQL MUTATIONS TO INTERACT WITH THE GQL BACKEND OR CACHE
+     */
+
+    /**
+     * 1) Mutation to create a stripe.paymentIntent on cart in M2 backend
+     *
+     * invoked automatically when StripeJS APIS have finished loading
+     * backend returns a CLIENT_SECRET for future use with stripeJS API calls
+     */
+    const [createPaymentIntent, { data: intentData }] = useMutation(
+        createPaymentIntentMutation
+    );
+    const CLIENT_SECRET = intentData?.createPaymentIntent?.intent_client_secret;
+
+    /**
+     * 2) Mutation to save billing address on cart in M2 backend
+     *
+     * User invokes this when perssing the "view order" button
+     * We listen to this event for triggering a stripe.paymentMethod fetch
+     */
     const [
         updateBillingAddress,
         {
@@ -157,6 +182,65 @@ export const useCreditCard = props => {
         }
     ] = useMutation(setBillingAddressMutation);
 
+    /**
+     * 3) Method to save the stripe.paymentMethod in GQL client cache
+     * Note: We use cache because there is no way to save this information on the cart in M2 backend.
+     *
+     * This is invoked by useEffect when we get a new paymentMethod object from stripeJS
+     * We listen for this event to trigger stripe authorization
+     */
+
+    const setPaymentMethodInCache = useCallback(
+        paymentMethod => {
+            /*
+            // FULL DATASET FROM STRIPE FOR REFERENCES:
+            const stripeResponse = {
+                id,
+                object, // string ("payment_method")
+                billing_details: {
+                    address, // object
+                    email, // string
+                    name, // string
+                    phone, // string
+                },
+                card: {
+                    brand, // string ("visa")
+                    checks, // object
+                    country, // string ("US")
+                    exp_month, // number
+                    exp_year, // number
+                    funding, // string ("credit")
+                    generated_from, // null
+                    last4 // string ("4242")
+                }
+                created, // timestamp
+                customer, // null
+                livemode, // bool (false)
+                type // string ("card")
+            } = paymentMethod;
+            */
+            const token = `${paymentMethod.id}:${paymentMethod.card.brand}:${
+                paymentMethod.card.last4
+            }`;
+            client.writeQuery({
+                query: getPaymentMethodQuery,
+                data: {
+                    cart: {
+                        __typename: 'Cart',
+                        id: cartId,
+                        stripe_payment_method: token
+                    }
+                }
+            });
+        },
+        [cartId, client, getPaymentMethodQuery]
+    );
+
+    /**
+     * 4) Mutation to save the stripe.paymentMethod.id reference on cart in M2 backend
+     *
+     * This is invoked automatically when Stripe has authorized the full paymentIntent
+     */
     const [
         updateCCDetails,
         {
@@ -166,17 +250,9 @@ export const useCreditCard = props => {
         }
     ] = useMutation(setStripeCreditCardDetailsOnCartMutation);
 
-    // Expose a function to create a new payment intent
-    // first define the gql mutation as a std func via useMutation
-    const [
-        createPaymentIntent,
-        {
-            error: intentError,
-            called: intentCalled,
-            loading: intentLoading,
-            data: intentData
-        }
-    ] = useMutation(createPaymentIntentMutation);
+    /**
+     * MISC DATASETS
+     */
 
     const shippingAddressCountry = shippingAddressData
         ? shippingAddressData.cart.shippingAddresses[0].country.code
@@ -282,34 +358,7 @@ export const useCreditCard = props => {
     }, [formState.values, updateBillingAddress, cartId]);
 
     /**
-     * This function sets the payment intent details in the cache.
-     * We use cache because there is no way to save this information
-     * on the cart in the remote.
-     */
-    const setPaymentDetailsInCache = useCallback(
-        stripeToken => {
-            /**
-             * We dont save the intent code due to PII,
-             * we only save the subset of details.
-             */
-            client.writeQuery({
-                query: getPaymentMethodQuery,
-                data: {
-                    cart: {
-                        __typename: 'Cart',
-                        id: cartId,
-                        cc_stripejs_token: stripeToken
-                    }
-                }
-            });
-        },
-        [cartId, client, getPaymentMethodQuery]
-    );
-
-    /**
-     * This function saves the paymentintent client_secret from stripe
-     * on the cart along with the payment method used in
-     * this case `stripe_payments`.
+     * This function saves the paymentMethod.id (token) from stripe
      */
     const updateCCDetailsOnCart = useCallback(
         async stripeToken => {
@@ -332,25 +381,7 @@ export const useCreditCard = props => {
     );
 
     /**
-     * Function to be called by the stripe dropin when the
-     * paymentMethod generation is successful.
-     */
-    const onPaymentSuccess = useCallback(
-        stripeToken => {
-            console.log('onPaymentSucces runs', stripeToken);
-            setPaymentDetailsInCache(stripeToken);
-            /**
-             * Updating selected payment method on cart.
-             */
-            updateCCDetailsOnCart(stripeToken);
-            setStepNumber(3);
-        },
-        [setPaymentDetailsInCache, updateCCDetailsOnCart]
-    );
-
-    /**
-     * Function to be called by the stripe dropin when the
-     * paymentIntent generation is not successful.
+     * Generic helper function to be called when the things hit the fan
      */
     const onPaymentError = useCallback(
         error => {
@@ -365,39 +396,22 @@ export const useCreditCard = props => {
     );
 
     /**
-     * Function to be called by the stripe dropin when the
-     * credit card component has loaded successfully.
-     */
-    const onPaymentReady = useCallback(() => {
-        // fire the mutation to make payment intent on backend server
-        // useEffect listener below will update states when intent is received
-        createPaymentIntent({
-            variables: { cartId }
-        });
-    }, [createPaymentIntent, cartId]);
-
-    // update states when paymentIntent created
+     * INIT (once all APIs are set up)
+     * fire the mutation to make payment intent on backend server
+     * useEffect listener below will update step when CLIENT_SECRET is received from M2 backend
+     **/
     useEffect(() => {
-        if (intentData) {
-            console.log('paymentIntent changed', intentData);
-            setDropinLoading(false);
-            setStepNumber(0);
-            if (onReady) {
-                onReady();
-            }
+        if (stripe && elements && isStripeJSLoading) {
+            setStripeJSLoading(false);
         }
-    }, [intentData, onReady]);
+        setStepNumber(0);
+        if (onReady) {
+            onReady();
+        }
+    }, [stripe, elements, cartId, isStripeJSLoading, onReady]);
 
     /**
-     * Function to be called by stripe dropin when the payment
-     * teardown is done successfully before re creating the new dropin.
-     */
-    const resetShouldTeardownDropin = useCallback(() => {
-        setShouldTeardownDropin(false);
-    }, []);
-
-    /**
-     * Effects
+     * EFFECTS
      */
 
     /**
@@ -470,7 +484,7 @@ export const useCreditCard = props => {
             ) {
                 /**
                  * Billing address save mutation is successful
-                 * we can initiate the stripe paymentIntent request
+                 * we can initiate the stripe paymentMethod request
                  */
                 setStepNumber(2);
                 setShouldRequestPayment(true);
@@ -502,73 +516,141 @@ export const useCreditCard = props => {
     ]);
 
     /**
-     * Step 2-3 transition
-     * shouldRequestPayment changed
-     * ...no need to pass this back and forth between the visual component
-     * - let's handle everything here and fire onPaymentSuccess afterwards
+     * billing address is set, and shouldRequestPayment changed
+     * create a StripeJS paymentMethod and authorize it if needed
+     * Set payment details on cart when done
      */
     useEffect(() => {
-        if (shouldRequestPayment) {
-            console.log('should request paymentMethod');
-            /*
-            const CLIENT_SECRET =
-                intentData?.createPaymentIntent?.intent_client_secret;
-*/
-            if (!stripe || !elements || !billingAddressData) {
-                // Stripe.js has not yet loaded.
-                // Make sure to disable form submission until Stripe.js has loaded.
-                onPaymentError('Failed to request payment method from stripe');
-                return;
-            }
-
-            const {
-                firstname,
-                lastname,
-                email,
-                telephone,
-                street,
-                postcode,
-                city,
-                country_id
-            } = billingAddressData;
-
-            const createPaymentMethod = async () => {
-                const { paymentMethod } = await stripe.createPaymentMethod({
-                    type: 'card',
-                    card: elements.getElement(CardElement),
-                    billing_details: {
-                        name: firstname + ' ' + lastname,
-                        email: email,
-                        phone: telephone,
-                        address: {
-                            line1: street,
-                            postal_code: postcode,
-                            city: city,
-                            country: country_id
-                        }
+        if (shouldRequestPayment && billingAddressData?.cart?.billingAddress) {
+            try {
+                console.log(
+                    'should request paymentMethod',
+                    billingAddressData.cart.billingAddress
+                );
+                const {
+                    firstName,
+                    lastName,
+                    email,
+                    phoneNumber,
+                    street,
+                    postcode,
+                    city,
+                    country_id
+                } = billingAddressData.cart.billingAddress;
+                if (!stripe || !elements || !firstName) {
+                    // Stripe.js has not yet loaded.
+                    // Make sure to disable form submission until Stripe.js has loaded.
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.error(
+                            'billingAddress or API missing on paymentMethod req.',
+                            firstname
+                        );
                     }
-                });
-
-                if (!paymentMethod?.id) {
-                    console.warn('Failed to create stripe payment method');
-                } else {
-                    onPaymentSuccess(paymentMethod.id);
-                    // TODO: figure out if the id is all we really need:
-                    // found some interesting references on token usage.
-                    // token: `${paymentMethod.id}:${paymentMethod.card.brand}:${paymentMethod.card.last4}`,
+                    /**
+                     * Billing address save mutation is not successful.
+                     * Reset update button clicked flag.
+                     */
+                    throw new Error('PaymentMethod request failed');
                 }
-            };
-            createPaymentMethod();
+
+                const createPaymentMethod = async () => {
+                    const { paymentMethod } = await stripe.createPaymentMethod({
+                        type: 'card',
+                        card: elements.getElement(CardElement),
+                        billing_details: {
+                            name: firstName + ' ' + lastName,
+                            email: email,
+                            phone: phoneNumber,
+                            address: {
+                                line1: street[0],
+                                postal_code: postcode,
+                                city: city,
+                                country: country_id
+                            }
+                        }
+                    });
+                    if (!paymentMethod?.id) {
+                        if (process.env.NODE_ENV !== 'production') {
+                            console.error(
+                                'Failed to create stripeJS paymentMethod'
+                            );
+                        }
+                    } else {
+                        updateCCDetailsOnCart(paymentMethod.id);
+                        setPaymentMethodInCache(paymentMethod);
+                    }
+                };
+                createPaymentMethod();
+            } catch (err) {
+                onPaymentError(err);
+            }
+        } else {
+            console.info('shouldrequest method with no billingaddress');
         }
     }, [
+        shouldRequestPayment,
         stripe,
         elements,
-        shouldRequestPayment,
-        intentData,
         billingAddressData,
+        setPaymentMethodInCache,
         onPaymentError,
-        onPaymentSuccess
+        CLIENT_SECRET,
+        updateCCDetailsOnCart
     ]);
+
+    /*
+    useEffect(() => {
+        // Authorize the payment if required
+        const authorizePayment = async stripe_pm_token => {
+            //return new Promise((resolve, reject) => {
+
+
+            const result = await stripe.confirmCardPayment(CLIENT_SECRET, {
+                payment_method: stripe_pm_token
+            }).then(result => {
+                console.log('confirmed payment', result);
+                stripe.retrievePaymentIntent(CLIENT_SECRET).then(result => {
+                    console.log('got paymentIntent from stripe', result);
+                    const {
+                        paymentIntent: { status, confirmation_method }
+                    } = result;
+                    if (['requires_action', 'requires_source_action'].includes(status)) {
+                        if (confirmation_method === 'manual') {
+                            return stripe.handleCardAction(CLIENT_SECRET);
+                        } else {
+                            return stripe.handleCardPayment(CLIENT_SECRET);
+                        }
+                    }
+                    return null;
+                });
+            });
+
+            return result;
+        }
+        if (paymentMethod?.id) {
+            // got a payment Method in local state
+            console.log('new payment Method in local state', paymentMethod);
+            authorizePayment(paymentMethod.id).then(result => {
+                console.log('auth complete', result);
+                updateCCDetailsOnCart(paymentMethod.id);
+            });
+        }
+    }, [paymentMethod, CLIENT_SECRET, stripe, updateCCDetailsOnCart]);
+*/
+
+    useEffect(() => {
+        if (stripePaymentMethodData) {
+            console.log(
+                'paymentMethod found in cache',
+                stripePaymentMethodData
+            );
+            createPaymentIntent({
+                variables: { cartId }
+            });
+        } else {
+            console.log('no payment method yet');
+        }
+    }, [stripePaymentMethodData, stripe, createPaymentIntent, cartId]);
 
     /**
      * Step 3 effect
@@ -585,12 +667,53 @@ export const useCreditCard = props => {
         try {
             const ccMutationCompleted = ccMutationCalled && !ccMutationLoading;
 
-            if (ccMutationCompleted && !ccMutationError) {
-                if (onSuccess) {
-                    onSuccess();
+            if (ccMutationCompleted && !ccMutationError && CLIENT_SECRET) {
+                const authorizePayment = async () => {
+                    //return new Promise((resolve, reject) => {
+
+                    /*
+                    // DO NOT USE - WIP reference only!
+                    // Steal all the moneys directly from client - without placing the order
+                    const result = await stripe.confirmCardPayment(CLIENT_SECRET, {
+                        payment_method: stripe_pm_token
+                    }).then(result => {
+                    */
+
+                    // PROBLEM! The paymentIntent still has status 'requires_payment_method' :((
+                    // If we let checkout.js fire the placeOrder() gql it will result in Stripe Error(authentication_required)
+                    console.log('cart has payment method now. authorizing');
+                    stripe.retrievePaymentIntent(CLIENT_SECRET).then(result => {
+                        console.log('got paymentIntent from stripe', result);
+                        const {
+                            paymentIntent: { status, confirmation_method }
+                        } = result;
+                        if (
+                            [
+                                'requires_action',
+                                'requires_source_action'
+                            ].includes(status)
+                        ) {
+                            if (confirmation_method === 'manual') {
+                                return stripe.handleCardAction(CLIENT_SECRET);
+                            } else {
+                                return stripe.handleCardPayment(CLIENT_SECRET);
+                            }
+                        }
+                        return null;
+                    });
+                };
+                if (CLIENT_SECRET) {
+                    // got a payment Method in local state
+                    authorizePayment().then(result => {
+                        console.log('auth complete', result);
+                        if (onSuccess) {
+                            console.log('onSuccees will be called now');
+                            onSuccess();
+                        }
+                        resetShouldSubmit();
+                        setStepNumber(4);
+                    });
                 }
-                resetShouldSubmit();
-                setStepNumber(4);
             }
 
             if (ccMutationCompleted && ccMutationError) {
@@ -598,6 +721,8 @@ export const useCreditCard = props => {
                  * If credit card mutation failed, reset update button clicked so the
                  * user can click again and set `stepNumber` to 0.
                  */
+                console.log('GOT CREDIT CARD MUTATION ERROR', ccMutationError);
+
                 throw new Error(
                     'Credit card paymentIntent save mutation failed.'
                 );
@@ -617,7 +742,9 @@ export const useCreditCard = props => {
         onSuccess,
         setShouldRequestPayment,
         resetShouldSubmit,
-        ccMutationError
+        ccMutationError,
+        CLIENT_SECRET,
+        stripe
     ]);
 
     const errors = useMemo(
@@ -631,17 +758,12 @@ export const useCreditCard = props => {
 
     return {
         errors,
-        onPaymentError,
-        onPaymentSuccess,
-        onPaymentReady,
         isBillingAddressSame,
         isLoading,
-        shouldRequestPayment,
         stepNumber,
         initialValues,
         shippingAddressCountry,
         shouldTeardownDropin,
-        resetShouldTeardownDropin,
         recaptchaWidgetProps
     };
 };

@@ -11,13 +11,13 @@ import Postcode from '@magento/venia-ui/lib/components/Postcode';
 import Checkbox from '@magento/venia-ui/lib/components/Checkbox';
 import Field from '@magento/venia-ui/lib/components/Field';
 import TextInput from '@magento/venia-ui/lib/components/TextInput';
-import StripeDropin from './stripeDropin.js';
 import LoadingIndicator from '@magento/venia-ui/lib/components/LoadingIndicator';
 import { useStyle } from '@magento/venia-ui/lib/classify';
 
 import defaultClasses from '@magento/venia-ui/lib/components/CheckoutPage/PaymentInformation/creditCard.module.css';
 import FormError from '@magento/venia-ui/lib/components/FormError';
 import GoogleReCaptcha from '@magento/venia-ui/lib/components/GoogleReCaptcha';
+import { CardElement } from '@stripe/react-stripe-js';
 
 const STEP_DESCRIPTIONS = [
     { defaultMessage: 'Loading Payment', id: 'checkoutPage.step0' },
@@ -65,10 +65,6 @@ const CreditCard = props => {
 
     const {
         errors,
-        shouldRequestPayment,
-        onPaymentError,
-        onPaymentSuccess,
-        onPaymentReady,
         isBillingAddressSame,
         isLoading,
         /**
@@ -85,7 +81,6 @@ const CreditCard = props => {
         initialValues,
         shippingAddressCountry,
         shouldTeardownDropin,
-        resetShouldTeardownDropin,
         recaptchaWidgetProps
     } = talonProps;
 
@@ -153,6 +148,25 @@ const CreditCard = props => {
         <LoadingIndicator>{stepTitle}</LoadingIndicator>
     ) : null;
 
+    const CARD_ELEMENT_OPTIONS = {
+        hidePostalCode: true,
+        style: {
+            base: {
+                color: '#32325d',
+                fontFamily: '"Helvetica Neue", Helvetica, sans-serif',
+                fontSmoothing: 'antialiased',
+                fontSize: '16px',
+                '::placeholder': {
+                    color: '#aab7c4'
+                }
+            },
+            invalid: {
+                color: '#fa755a',
+                iconColor: '#fa755a'
+            }
+        }
+    };
+
     return (
         <div className={classes.root} data-cy="CreditCard-root">
             <div className={creditCardComponentClassName}>
@@ -162,14 +176,9 @@ const CreditCard = props => {
                     errors={Array.from(errors.values())}
                 />
                 <div className={classes.dropin_root}>
-                    <StripeDropin
-                        onError={onPaymentError}
-                        onReady={onPaymentReady}
-                        onSuccess={onPaymentSuccess}
-                        shouldRequestPayment={shouldRequestPayment}
-                        shouldTeardownDropin={shouldTeardownDropin}
-                        resetShouldTeardownDropin={resetShouldTeardownDropin}
-                    />
+                    {shouldTeardownDropin ? null : (
+                        <CardElement options={CARD_ELEMENT_OPTIONS} />
+                    )}
                 </div>
                 <div
                     data-cy="CreditCard-AddressCheck-root"
