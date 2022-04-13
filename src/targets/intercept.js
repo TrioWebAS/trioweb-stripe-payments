@@ -13,6 +13,13 @@ module.exports = targets => {
         };
     });
 
+    /* Add a custom checkout talon */
+    targets.of('@magento/peregrine').talons.tap(talons => {
+        talons.CheckoutPage.useCheckoutPage.wrapWith(
+            `@trioweb/stripe-payments/src/talons/wrapUseCheckoutPage.js`
+        );
+    });
+
     /***
      *  Add the required Stripe Elements provider on the top-level of the PWA
      *  Note: had issues injecting this in the appContextProvider - surrounding the output from LocaleProvider instead

@@ -403,12 +403,12 @@ export const useCreditCard = props => {
     useEffect(() => {
         if (stripe && elements && isStripeJSLoading) {
             setStripeJSLoading(false);
+            setStepNumber(0);
+            if (onReady) {
+                onReady();
+            }
         }
-        setStepNumber(0);
-        if (onReady) {
-            onReady();
-        }
-    }, [stripe, elements, cartId, isStripeJSLoading, onReady]);
+    }, [stripe, elements, isStripeJSLoading, onReady]);
 
     /**
      * EFFECTS
@@ -671,9 +671,9 @@ export const useCreditCard = props => {
                 const authorizePayment = async () => {
                     //return new Promise((resolve, reject) => {
 
-                    /*
                     // DO NOT USE - WIP reference only!
                     // Steal all the moneys directly from client - without placing the order
+                    /*
                     const result = await stripe.confirmCardPayment(CLIENT_SECRET, {
                         payment_method: stripe_pm_token
                     }).then(result => {
